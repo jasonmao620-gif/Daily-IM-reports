@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IM 每日简报 · 云端部署手册</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1f2328;--sub:#5b6470;--line:#e4e7ec;
+--blue:#1f5fbf;--bluebg:#eef4ff;--warn:#b26a00;--warnbg:#fff7e6;
+--ok:#0f7b45;--okbg:#eaf7ef;--red:#d92b2b;--greybg:#f0f2f5}
+*{box-sizing:border-box}
+body{margin:0;padding:30px 18px 70px;background:var(--bg);
+font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+color:var(--ink);line-height:1.8;font-size:15px}
+.wrap{max-width:880px;margin:0 auto}
+h1{font-size:27px;margin:0 0 8px}
+.lead{color:var(--sub);font-size:14px;margin-bottom:26px}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px 24px;margin-bottom:18px}
+.sec h2{font-size:19px;margin:0 0 14px;padding-bottom:10px;border-bottom:2px solid var(--line)}
+.sec h2 .num{display:inline-block;background:var(--blue);color:#fff;width:26px;height:26px;
+border-radius:50%;text-align:center;line-height:26px;font-size:14px;margin-right:9px;vertical-align:2px}
+h3{font-size:15.5px;margin:20px 0 8px}
+p{margin:9px 0}
+code{background:var(--greybg);padding:2px 6px;border-radius:4px;font-size:13.5px;
+font-family:"SF Mono",Menlo,Consolas,monospace}
+pre{background:#22272e;color:#e6edf3;padding:14px 16px;border-radius:8px;overflow-x:auto;
+font-size:13px;line-height:1.7;font-family:"SF Mono",Menlo,Consolas,monospace;margin:10px 0}
+pre .c{color:#8b949e}
+.flow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin:16px 0}
+.flow .box{flex:1;min-width:150px;background:var(--bluebg);border:1px solid #cfdffb;
+border-radius:9px;padding:12px 14px;font-size:13.5px}
+.flow .box b{display:block;font-size:14.5px;margin-bottom:4px;color:var(--blue)}
+.flow .box span{color:var(--sub);font-size:12.5px}
+.tip{background:var(--okbg);border-left:3px solid var(--ok);padding:11px 15px;
+border-radius:0 6px 6px 0;font-size:14px;margin:12px 0}
+.warn{background:var(--warnbg);border-left:3px solid var(--warn);padding:11px 15px;
+border-radius:0 6px 6px 0;font-size:14px;margin:12px 0}
+.note{background:var(--greybg);border-left:3px solid var(--sub);padding:11px 15px;
+border-radius:0 6px 6px 0;font-size:13.5px;color:#3c4450;margin:12px 0}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:12px 0}
+th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--greybg);font-weight:600;color:var(--sub);font-size:12.5px}
+.fill{background:#fffbe6;padding:2px 6px;border-radius:4px;border:1px dashed #d0b26a;
+font-family:"SF Mono",Menlo,monospace;font-size:13px}
+ol,ul{padding-left:22px;margin:9px 0}
+li{margin:6px 0}
+.badge{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:10px;
+background:var(--bluebg);color:var(--blue);margin-left:6px;vertical-align:2px}
+.foot{font-size:12.5px;color:var(--sub);text-align:center;margin-top:26px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>IM 每日简报 · 云端部署手册</h1>
+<div class="lead">目标：每天早上 7:00，手机微信自动收到一份中证1000 盘前简报。全程约 20 分钟，一次性配置，之后不用管。</div>
+
+<div class="sec">
+<h2>先看懂：这件事由三块拼起来</h2>
+<div class="flow">
+  <div class="box"><b>① GitHub 仓库</b><span>存放代码 + 存每天生成的网页</span></div>
+  <div class="box"><b>② GitHub Actions</b><span>GitHub 自己的免费服务器，每天 7 点自动跑一次</span></div>
+  <div class="box"><b>③ Server酱</b><span>把结果推到你微信的中间人，免费</span></div>
+</div>
+<p>你不需要一直开着电脑，也不需要在电脑上装 Python。跑的机器是 GitHub 的，不花电费、不花服务器费。</p>
+<div class="note"><b>为什么要 Public（公开）仓库？</b>GitHub 免费账号的「网页托管（Pages）」只对公开仓库开放。报告里没有你的持仓、账户、身份信息，全是公开行情，公开没有隐私风险。<b>所有密钥都存在 Secrets 里，不随代码公开。</b></div>
+</div>
+
+<div class="sec">
+<h2><span class="num">0</span>准备清单</h2>
+<table>
+<tr><th style="width:150px">要准备</th><th>怎么来</th></tr>
+<tr><td>GitHub 账号</td><td>没有就现注册，邮箱+密码即可，免费</td></tr>
+<tr><td>GitHub Desktop</td><td>图形化上传工具，免命令行。<a href="https://desktop.github.com">desktop.github.com</a> 下载安装</td></tr>
+<tr><td>Server酱 SendKey</td><td>微信扫码登录 <a href="https://sct.ftqq.com">sct.ftqq.com</a>，30 秒拿到</td></tr>
+<tr><td>项目文件夹</td><td>本机的 <code>cloud</code> 文件夹（已经写好了，不用改代码）</td></tr>
+</table>
+</div>
+
+<div class="sec">
+<h2><span class="num">1</span>建一个仓库</h2>
+<ol>
+<li>浏览器打开 <a href="https://github.com">github.com</a>，登录（没账号点 <b>Sign up</b> 注册）。</li>
+<li>右上角 <b>+</b> 号 → <b>New repository</b>。</li>
+<li>填写：
+  <ul>
+  <li><b>Repository name</b>：<code>im-daily</code>（名字随便，记住即可）</li>
+  <li>下面选 <b>Public</b>（这一步很关键，别选 Private）</li>
+  <li><b>不要</b>勾选 Add a README file（避免后面冲突）</li>
+  </ul>
+</li>
+<li>点绿色按钮 <b>Create repository</b>。出现一个空仓库页面，先放着。</li>
+</ol>
+</div>
+
+<div class="sec">
+<h2><span class="num">2</span>把代码传上去 <span class="badge">推荐用 GitHub Desktop</span></h2>
+<p>为什么不用网页拖拽：本项目里有一个<b>隐藏文件夹</b> <code>.github</code>，定时任务的配置文件就藏在里面。网页上传时看不见它，很容易漏掉——漏了就会出现「定时任务根本没被创建」这种很难查的问题。用 GitHub Desktop 拖文件夹不会漏。</p>
+<ol>
+<li>打开 GitHub Desktop → <b>Sign in to GitHub.com</b> → 浏览器里点授权 → 回到软件。</li>
+<li>菜单 <b>File</b> → <b>Add local repository…</b>。</li>
+<li>点 <b>Choose…</b>，选中本机的 <code>cloud</code> 文件夹，点 <b>Add repository</b>。</li>
+<li>软件会提示这不是一个仓库，点提示里的 <b>create a repository</b> 链接。
+  <ul><li>Name 保持 <code>cloud</code>（或改成 <code>im-daily</code>）</li>
+      <li>Description 留空</li>
+      <li>不要勾 Git ignore / License</li>
+      <li>点 <b>Create repository</b></li></ul>
+</li>
+<li>左侧会出现一堆文件，底部 Summary 随便填 <code>init</code>，点 <b>Commit to main</b>。</li>
+<li>顶部点 <b>Publish repository</b>，弹窗里<b>把「Keep this code private」的勾去掉</b>（必须去掉，否则 Pages 用不了），点 <b>Publish repository</b>。</li>
+</ol>
+<div class="tip">完成后回到 GitHub 网页刷新，应该能看到 <code>main.py</code>、<code>src</code>、<code>docs</code>、<code>.github</code> 这些文件。看到 <code>.github</code> 就说明成功了——这是最容易漏的一个。</div>
+</div>
+
+<div class="sec">
+<h2><span class="num">3</span>打开网页托管（Pages）</h2>
+<ol>
+<li>在仓库页面点 <b>Settings</b>（顶部菜单，齿轮图标）。</li>
+<li>左侧栏找到 <b>Pages</b>。</li>
+<li><b>Source</b> 选 <b>Deploy from a branch</b>。</li>
+<li><b>Branch</b> 选 <code>main</code>，右边文件夹选 <code>/docs</code>，点 <b>Save</b>。</li>
+<li>等 1–2 分钟刷新页面，顶部会出现一行：<br>
+<b>Your site is live at</b> <code>https://你的用户名.github.io/im-daily/</code></li>
+</ol>
+<div class="warn"><b>这个网址复制下来，下一步要用。</b>注意结尾<b>不要</b>带斜杠，也不要带 <code>index.html</code>。</div>
+</div>
+
+<div class="sec">
+<h2><span class="num">4</span>填第一个设置：PAGES_BASE</h2>
+<p>作用：让程序知道报告的网址，才能把「点开看全文」的链接放进微信。</p>
+<ol>
+<li>仓库 <b>Settings</b> → 左侧 <b>Secrets and variables</b> → <b>Actions</b>。</li>
+<li>点 <b>Variables</b> 标签（不是 Secrets）。</li>
+<li>点 <b>New repository variable</b>。</li>
+<li>Name 填 <code>PAGES_BASE</code>；Value 填上一步那个网址，例如
+<code>https://mao.github.io/im-daily</code>。</li>
+<li>点 <b>Add variable</b>。</li>
+</ol>
+</div>
+
+<div class="sec">
+<h2><span class="num">5</span>拿一个 Server酱 的钥匙</h2>
+<ol>
+<li>手机微信打开扫一扫，电脑浏览器打开 <a href="https://sct.ftqq.com">sct.ftqq.com</a>。</li>
+<li>点 <b>微信扫码登录</b>，手机确认。</li>
+<li>页面会显示一串以 <code>SCT</code> 开头的字符，这就是 <b>SendKey</b>，复制它。</li>
+</ol>
+<div class="note">免费版每天 5 条消息，我们每天只推 1 条，够用。以后想换通道（比如企业微信机器人、PushPlus），代码里已经预留了 <code>PUSH_CHANNEL</code> 开关。</div>
+</div>
+
+<div class="sec">
+<h2><span class="num">6</span>填第二个设置：PUSH_KEY</h2>
+<ol>
+<li>还是 <b>Settings → Secrets and variables → Actions</b>，这次点 <b>Secrets</b> 标签。</li>
+<li>点 <b>New repository secret</b>。</li>
+<li>Name 填 <code>PUSH_KEY</code>；Secret 粘贴刚才那串 <code>SCT…</code>。</li>
+<li>点 <b>Add secret</b>。</li>
+</ol>
+<div class="tip">Secrets 存进去之后连你自己都看不到原文，只能覆盖重填，这是正常的。它就是给密码类信息用的位置。</div>
+</div>
+
+<div class="sec">
+<h2><span class="num">7</span>手动跑一次，验证通了</h2>
+<ol>
+<li>仓库顶部点 <b>Actions</b>。</li>
+<li>左侧列表点 <b>IM 中证1000 盘前简报（早7点）</b>。</li>
+<li>右边有个灰色提示条写着「This workflow has a workflow_dispatch event trigger」，点右侧的 <b>Run workflow</b> 按钮 → 再点绿色 <b>Run workflow</b>。</li>
+<li>等 10 秒刷新，会出现一条正在跑的记录，点进去能看到每一步的日志。</li>
+<li>全部变绿勾后，手机微信应该收到消息（Server酱 服务号）。</li>
+</ol>
+<div class="warn"><b>如果 Actions 左边列表里找不到这个工作流</b>，说明第 2 步的 <code>.github</code> 文件夹没传上去。回 GitHub Desktop 看一下文件列表里有没有 <code>.github</code>，没有就从原文件夹重新拖进去再提交。</div>
+</div>
+
+<div class="sec">
+<h2><span class="num">8</span>确认定时：每天早 7 点</h2>
+<p>定时规则已经写在配置文件里了，你不需要改。它长这样：</p>
+<pre><span class="c"># 早 7:00 北京时间 = 前一天 23:00 UTC（中国无夏令时，全年 UTC+8）</span>
+- cron: '0 23 * * 0-4'</pre>
+<p>为什么是 <code>0 23</code> 而不是 <code>0 7</code>：GitHub 的钟走的是 UTC 世界时，比北京晚 8 小时。</p>
+<table>
+<tr><th>北京时间</th><th>UTC 时间</th><th>cron 里的星期</th></tr>
+<tr><td>周一 07:00</td><td>周日 23:00</td><td>0（周日）</td></tr>
+<tr><td>周二 07:00</td><td>周一 23:00</td><td>1</td></tr>
+<tr><td>周三 07:00</td><td>周二 23:00</td><td>2</td></tr>
+<tr><td>周四 07:00</td><td>周三 23:00</td><td>3</td></tr>
+<tr><td>周五 07:00</td><td>周四 23:00</td><td>4</td></tr>
+</table>
+<p>所以写 <code>0-4</code> 正好覆盖周一到周五。周六周日不跑（A股休市）。</p>
+<div class="note"><b>两个已知特性，不是故障：</b><br>
+① GitHub 的定时任务在整点高峰会排队，实际执行常在 <b>7:00–7:20</b> 之间，不会准点到秒。<br>
+② 仓库连续 60 天没有任何提交，GitHub 会自动停用定时任务。我们每天都会提交一份报告，所以不会触发。</div>
+</div>
+
+<div class="sec">
+<h2>每天你会收到什么</h2>
+<p>微信里是一条这样的消息（点最下面的链接看带表格和颜色的完整版）：</p>
+<pre><b>IM盘前 2026-10-16｜6,681.94 (+0.05%)</b>
+
+中证1000 6,681.94（+0.05%）
+IM2612 6,583.60（+0.46%）｜持仓 288,308（-10,797）｜贴水 1.47%
+RSI6 9.3 ｜ RSI14 23.9 ｜ DIF -213.4
+
+<b>背离：</b> 底背离成立，但 DIF 未拐头 → 未确认
+<b>隔夜：</b> 纳指 24,888（-2.15%）｜VIX 19.98（+21.5%）
+<b>同类情形：</b> 纳指跌超2%+前20日跌超10%（n=6）次日上涨 67%，开盘 -1.04%、收盘 +0.25%
+
+<b>关键价位</b>
+- 布林下轨：6,667
+- 近5日低点：6,626
+- MA5（压力）：6,862
+
+1. DIF 未拐头前，反弹只算超跌修复，不加仓
+2. 低开瞬间不追空，跌幅多在开盘兑现完
+3. 70 万账户 IM 最多 1 手；怕被震出局就用 MO 买权
+
+[完整报告（含全部表格）]
+公开数据量化推演，不构成投资建议。</pre>
+</div>
+
+<div class="sec">
+<h2>出问题怎么查</h2>
+<table>
+<tr><th style="width:190px">症状</th><th>原因与处理</th></tr>
+<tr><td>Actions 里没有这个工作流</td><td><code>.github</code> 文件夹没上传。用 GitHub Desktop 重新拖一次并提交。</td></tr>
+<tr><td>跑了但微信没收到</td><td>看 Actions 日志最后一步「推送到个人微信」：显示 401/403 是 SendKey 错了；显示 timeout 是网络问题，重跑一次多半就好。</td></tr>
+<tr><td>微信里点链接 404</td><td>三种可能：Pages 没开、文件夹没选 <code>/docs</code>、<code>PAGES_BASE</code> 结尾多了斜杠或少了仓库名。</td></tr>
+<tr><td>报告顶部有黄色警告「数据异常」</td><td>某天数据源挂了，报告仍会发出来但会明确标注，不会拿过期数据冒充当天的。</td></tr>
+<tr><td>某一年显示「数据缺失」</td><td>单个数据源临时失败，其他内容不受影响。这是有意设计的：宁可缺一格，不编一个数。</td></tr>
+<tr><td>想换个时间跑</td><td>改 <code>.github/workflows/daily.yml</code> 里的 <code>cron</code>。北京时间 = UTC + 8，比如晚 8 点就是 <code>0 12 * * 1-5</code>。</td></tr>
+</table>
+</div>
+
+<div class="sec">
+<h2>不想装 GitHub Desktop 的话</h2>
+<p>本机已经装好 git（2.54.0），可以在「终端」里用三条命令完成上传。需要先在 GitHub 生成一个访问令牌（Password Token），因为现在不能用账号密码推送。</p>
+<p><b>生成令牌：</b>GitHub 右上头像 → Settings → 左栏最下 <b>Developer settings</b> → <b>Personal access tokens</b> → <b>Tokens (classic)</b> → <b>Generate new token (classic)</b> → Note 随便填，Expiration 选 90 days，勾选 <b>repo</b> 那一整行 → 生成后<b>立刻复制</b>（只显示一次）。</p>
+<p>然后在终端里：</p>
+<pre><span class="c"># 进入项目文件夹（把路径换成你实际的 cloud 路径）</span>
+cd /Users/Mao/WorkBuddy/2026-09-29-22-49-27/cloud
+
+git init -b main
+git add .
+git commit -m "init"
+git remote add origin https://github.com/<span class="fill">你的用户名</span>/im-daily.git
+git push -u origin main</pre>
+<p>推送时会要求输入用户名和密码：用户名填 GitHub 用户名，<b>密码粘贴刚才那个令牌</b>（不是账号密码）。</p>
+</div>
+
+<div class="foot">配置完成后，每天早 7:00 自动运行，不需要打开任何软件。<br>
+报告基于公开数据的量化统计，不构成投资建议。</div>
+
+</div>
+</body>
+</html>

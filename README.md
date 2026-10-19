@@ -1,0 +1,197 @@
+# IM 中证1000 盘前简报 · 云端版
+
+把「IM 中证1000 期货 + 全球宏观 + MO 期权」的每日简报搬到 GitHub Actions 上跑，
+**每天早上 7:00（北京时间）**自动生成报告，并把结论摘要推送到你的**个人微信**。
+
+```
+GitHub Actions (cron UTC 23:00 前一天 = 北京 07:00，周一至周五)
+   ↓
+取数（现货 / IM / 中金所 / 外围 / 期权）→ 全部纯标准库，无需 pip install
+   ↓
+本地重算指标与历史概率（MACD、RSI、布林、背离、纳指传导）
+   ↓
+生成 HTML 全版 → 写入 docs/（GitHub Pages 提供公网链接）
+   ↓
+生成微信摘要 → Server酱 / PushPlus → 个人微信
+```
+
+**为什么上云**：本机自动化依赖 WorkBuddy 客户端常开，电脑关机/休眠就不跑。
+云端由 GitHub 托管，与你的电脑状态无关。
+
+**为什么选早 7:00**：这是每天唯一能同时拿到「A股上一交易日完整收盘」＋「美股最新完整收盘」
+的时点。美股 4:00–5:00（北京时间）收盘，7:00 取到的就是刚收的完整数据。
+晚间跑（20:00）时美股还没开盘，会天然漏掉当晚外围——2026-10-16 那次误判就是这么来的。
+
+---
+
+## 一、配置（约 15 分钟，只需做一次）
+
+> 图文逐步版见 **`部署手册.html`**（双击用浏览器打开），下面是同一套流程的精简版。
+
+### 1. 建仓库并推送
+
+仓库必须是 **Public**（公开）。GitHub 免费账号的 Pages 只对公开仓库开放。
+报告里只有公开行情，不含任何账户、持仓、身份信息；密钥都放 Secrets，不会随代码公开。
+
+```bash
+cd cloud
+git init -b main && git add . && git commit -m "init"
+git remote add origin https://github.com/<你的用户名>/im-daily.git
+git push -u origin main
+```
+
+推送时会要账号密码：用户名填 GitHub 用户名，**密码填 Personal Access Token**
+（Settings → Developer settings → Personal access tokens → Tokens (classic) → 勾 `repo`）。
+现在不能用账号密码直接推送。
+
+> 不想碰命令行：装 [GitHub Desktop](https://desktop.github.com)，登录后
+> File → Add local repository → 选 `cloud` 文件夹 → Create repository → Commit →
+> Publish repository（**去掉 Keep this code private 的勾**）。
+
+### 2. 开启 GitHub Pages
+
+仓库 **Settings → Pages → Build and deployment**
+- Source 选 `Deploy from a branch`
+- Branch 选 `main`，目录选 **`/docs`**
+- 保存后等 1–2 分钟，会得到地址，形如：
+  `https://<用户名>.github.io/im-daily/`
+
+### 3. 配置变量与密钥
+
+**Settings → Secrets and variables → Actions**
+
+在 *Variables* 页签加：
+
+| Name | 值 |
+|---|---|
+| `PAGES_BASE` | 上一步的 Pages 地址（**结尾不要带斜杠**），如 `https://mao.github.io/im-daily` |
+| `PUSH_CHANNEL` | `serverchan` 或 `pushplus`（不填默认 serverchan） |
+
+在 *Secrets* 页签加：
+
+| Name | 值 |
+|---|---|
+| `PUSH_KEY` | 微信推送服务的密钥（见下） |
+
+### 4. 拿到微信推送密钥（二选一）
+
+**Server酱（推荐，免费每天 5 条）**
+1. 打开 https://sct.ftqq.com/ ，微信扫码登录
+2. 复制 SendKey（形如 `SCTxxxxx`）
+3. 在微信里关注它提示的服务号，完成绑定
+
+**PushPlus（免费每天 200 条）**
+1. 打开 https://www.pushplus.plus/ ，微信扫码登录
+2. 首页复制 token
+3. 关注「pushplus推送」公众号
+
+### 5. 跑一次验证
+
+**Actions → IM 中证1000 盘前简报（早7点） → Run workflow**
+
+手动触发一次，看是否收到微信推送。之后它每天 7:00 自动跑。
+
+> 若 Actions 左侧列表里**找不到**这个工作流，说明 `.github` 文件夹没上传成功
+> （网页拖拽上传最容易漏这个隐藏目录），用 GitHub Desktop 重新拖一次即可。
+
+---
+
+## 二、本地调试
+
+```bash
+python3 main.py --session premkt --dry-run      # 盘前版，出报告不推送（最常用）
+python3 main.py --session close  --dry-run      # 复盘版（按当日收盘口径）
+python3 main.py --session premkt --stage generate   # 出报告 + 摘要暂存到 .cache/
+python3 main.py --session premkt --stage push       # 只推送暂存的摘要
+```
+
+不传 `--session` 时读环境变量 `SESSION`，再否则按北京时间 12 点前后自动判断。
+
+报告输出到 `docs/daily-YYYYMMDD.html`，直接双击可看。文件名用的是**数据日**
+（早 7 点跑时是上一个交易日），不是运行日。
+
+---
+
+## 三、推送的两个阶段为何要分开
+
+微信消息里的完整报告链接指向 GitHub Pages。Pages 的内容来自仓库的 `docs/`，
+而 `docs/` 是 Actions 在运行时才 `git push` 上去的——**推送微信必须排在 push 之后**。
+
+工作流里的顺序：`generate` → `git push` → 轮询等待 Pages 返回 200 → `push`。
+少任何一步，微信里点链接都会是 404。
+
+轮询用的 URL 由 `main.py` 写入 `.cache/url.txt`，**不能**在 shell 里用 `date` 自己拼——
+因为文件名是数据日，早 7 点跑时数据日不等于 UTC 当天。
+
+---
+
+## 四、时区陷阱（改 cron 前必看）
+
+GitHub Actions 的 cron 用 **UTC**，比北京时间晚 8 小时。而且 cron 的「星期」也是 UTC 星期：
+
+| 北京时间 | UTC | cron 星期 |
+|---|---|---|
+| 周一 07:00 | 周日 23:00 | `0` |
+| 周二 07:00 | 周一 23:00 | `1` |
+| 周三 07:00 | 周二 23:00 | `2` |
+| 周四 07:00 | 周三 23:00 | `3` |
+| 周五 07:00 | 周四 23:00 | `4` |
+
+所以是 `0 23 * * 0-4`，**不是** `0 7 * * 1-5`（后者是北京 15:00，且漏掉周一）。
+
+另外两个不是故障的现象：
+- GitHub 定时任务在整点高峰会排队，实际执行常在 **7:00–7:20** 之间。
+- 仓库连续 60 天无任何提交，定时任务会被自动停用。我们每天都提交报告，不会触发。
+
+---
+
+## 五、数据口径（踩过的坑，改动前请先看）
+
+- **现货日线**用新浪（可拿 800 根）；东财 `push2his` 对 A 股现货有 `lmt` 限制，长历史会失败。
+- **新浪日线有延迟**，收盘后不一定马上更新到当日。代码用东财实时价补一根当日 K 线，
+  并校验「实时昨收 == 日线末根收盘」，对不上就不补，避免整份报告错位一天。
+  早 7 点跑时这一步自然不生效（本来就不需要当日数据）。
+- **`TODAY` 必须用北京时间**。GitHub 的机器是 UTC，早 7 点跑时 UTC 还是前一天，
+  直接用 `date.today()` 会把日期、文件名、新鲜度校验全部算错一天。
+- **新鲜度判定分两种口径**：复盘版要求日线最后一根是今天；盘前版要求是上一交易日，
+  且只有落后超过 4 天才判定为异常（容忍周末与短假）。
+- **IM 到期日**是到期月第三个**星期五**；**MO 到期日**是第三个**星期三**，差 2 天。
+  已交割合约必须剔除，否则持仓量会出现虚假暴增。
+- **MO 隐含波动率必须用 Black-76、远期取同月 IM 期货价**。
+  用现货 Black-Scholes 会系统性低估约 4–5 个百分点。
+- **中金所前 20 CSV 列索引**（0 基）：持买单量 7、买单增减 8、持卖单量 10、卖单增减 11。
+  统计全合约时要剔除已交割合约（其「增减」是清零值，不剔除会误判为大幅减仓）。
+- **纳指传导配对规则**：纳指日期 d 的收盘 → 中证1000 中**日期严格大于 d** 的第一个交易日。
+- **概率一律本地重算**，禁止沿用往期报告数值；样本量 n<10 的结论必须标注为小样本。
+
+---
+
+## 六、常见问题
+
+**Q：会花钱吗？**
+不会。GitHub Actions 对公开仓库免费；私有仓库每月 2000 分钟，本任务每天约 1–2 分钟。
+Server酱 / PushPlus 的免费额度也够用。
+
+**Q：数据源挂了怎么办？**
+每个源独立 try，失败显示「数据缺失」，不会中断整条流水线。
+取数有三级降级：`urllib` → `curl 绕过代理` → `公共DNS + curl --resolve`。
+当日数据真的取不到时，报告顶部和微信摘要顶部都会打上「数据异常」警告，
+**不会拿过期数据冒充当天的**。
+
+**Q：能改推送时间吗？**
+改 `.github/workflows/daily.yml` 里的 cron，注意是 UTC 且星期也是 UTC，见第四节。
+晚 8 点复盘版：`0 12 * * 1-5`（北京时间当天 20:00，UTC 星期与北京同日）。
+
+**Q：想同时要早 7 点盘前 + 晚 8 点复盘？**
+在工作流里加一条 cron，并在 `generate`/`push` 两步把 `--session premkt` 换成一个
+按当前 UTC 小时判断的值，或者直接复制整个 workflow 文件改成 `SESSION: close` +
+对应 cron。成本几乎为零。
+
+**Q：微信里为什么只有摘要？**
+微信通道（Server酱/PushPlus/企业微信机器人）都不支持复杂 HTML 表格，
+20 行的表在微信里会糊成一团、数字对不齐容易看错。
+所以设计成「微信看结论 + 点链接看完整表格」。
+
+---
+
+*本仓库内容为公开数据的量化推演，不构成投资建议。*
