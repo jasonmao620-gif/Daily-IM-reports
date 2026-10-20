@@ -120,14 +120,15 @@ background:var(--bluebg);color:var(--blue);margin-left:6px;vertical-align:2px}
 <li><b>Source</b> 选 <b>Deploy from a branch</b>。</li>
 <li><b>Branch</b> 选 <code>main</code>，右边文件夹选 <code>/docs</code>，点 <b>Save</b>。</li>
 <li>等 1–2 分钟刷新页面，顶部会出现一行：<br>
-<b>Your site is live at</b> <code>https://你的用户名.github.io/im-daily/</code></li>
+<b>Your site is live at</b> <code>https://jasonmao620-gif.github.io/Daily-IM-reports/</code></li>
 </ol>
 <div class="warn"><b>这个网址复制下来，下一步要用。</b>注意结尾<b>不要</b>带斜杠，也不要带 <code>index.html</code>。</div>
 </div>
 
 <div class="sec">
-<h2><span class="num">4</span>填第一个设置：PAGES_BASE</h2>
-<p>作用：让程序知道报告的网址，才能把「点开看全文」的链接放进微信。</p>
+<h2><span class="num">4</span>填第一个设置：PAGES_BASE（现在可以跳过）</h2>
+<p><b>这一步已经改成自动推导了，不用再手动填。</b>工作流会按 <code>https://用户名.github.io/仓库名</code> 这个确定规则自己算出来，算错的可能性比手填更低。只有当你要绑自己的域名时，才需要回来设这个变量。</p>
+<p>下面保留原步骤，供绑域名时参考：让程序知道报告的网址，才能把「点开看全文」的链接放进微信。</p>
 <ol>
 <li>仓库 <b>Settings</b> → 左侧 <b>Secrets and variables</b> → <b>Actions</b>。</li>
 <li>点 <b>Variables</b> 标签（不是 Secrets）。</li>
@@ -221,7 +222,8 @@ RSI6 9.3 ｜ RSI14 23.9 ｜ DIF -213.4
 <h2>出问题怎么查</h2>
 <table>
 <tr><th style="width:190px">症状</th><th>原因与处理</th></tr>
-<tr><td>Actions 里没有这个工作流</td><td><code>.github</code> 文件夹没上传。用 GitHub Desktop 重新拖一次并提交。</td></tr>
+<tr><td>Actions 里没有这个工作流</td><td><b>最常见的问题</b>：<code>.github</code>、<code>src</code>、<code>docs</code> 这些文件夹根本没上传成功，仓库里只有几个零散文件。网页拖拽上传看不见以点开头的文件夹，一定会漏。<b>必须用 GitHub Desktop 上传</b>，或在 Finder 里按 <code>Cmd+Shift+.</code> 显示隐藏文件后再拖。</td></tr>
+<tr><td>Pages 构建失败（Build with Jekyll 报错）</td><td>Pages 设的是「从 <code>/docs</code> 目录发布」，但仓库里没有 <code>docs</code> 文件夹。把 <code>docs/</code> 传上去就会自动恢复。</td></tr>
 <tr><td>跑了但微信没收到</td><td>看 Actions 日志最后一步「推送到个人微信」：显示 401/403 是 SendKey 错了；显示 timeout 是网络问题，重跑一次多半就好。</td></tr>
 <tr><td>微信里点链接 404</td><td>三种可能：Pages 没开、文件夹没选 <code>/docs</code>、<code>PAGES_BASE</code> 结尾多了斜杠或少了仓库名。</td></tr>
 <tr><td>报告顶部有黄色警告「数据异常」</td><td>某天数据源挂了，报告仍会发出来但会明确标注，不会拿过期数据冒充当天的。</td></tr>

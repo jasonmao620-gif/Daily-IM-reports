@@ -1,0 +1,85 @@
+name: IM 中证1000 盘前简报（早7点）
+
+on:
+  schedule:
+    # 早 7:00 北京时间 = 前一天 23:00 UTC（中国无夏令时，全年 UTC+8）
+    # cron 里的星期是 UTC 星期：0=周日 … 6=周六
+    #   北京时间周一 07:00 = UTC 周日 23:00 → 0
+    #   北京时间周五 07:00 = UTC 周四 23:00 → 4
+    # 所以写 0-4，正好覆盖北京时间周一到周五，每天 7:00
+    - cron: '0 23 * * 0-4'
+  workflow_dispatch:            # 允许在 GitHub 页面手动点一次，方便调试
+
+permissions:
+  contents: write               # 需要把生成的报告推回仓库
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 自动推导 Pages 地址
+        # 不依赖手动配置 Variables：owner.github.io/repo 是确定性规则，填错反而更容易出问题。
+        # 若另外设了 PAGES_BASE 变量（例如绑了自定义域名），以变量为准。
+        run: |
+          if [ -n "${{ vars.PAGES_BASE }}" ]; then
+            echo "使用手动配置的 PAGES_BASE"
+            echo "PAGES_BASE=${{ vars.PAGES_BASE }}" >> "$GITHUB_ENV"
+          else
+            REPO="${GITHUB_REPOSITORY#*/}"
+            echo "PAGES_BASE=https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPO}" >> "$GITHUB_ENV"
+          fi
+          echo "报告外链将指向：$(grep PAGES_BASE "$GITHUB_ENV" | cut -d= -f2-)"
+
+      - name: 生成报告（取数 → 算指标 → 出 HTML → 暂存摘要）
+        run: python3 main.py --session premkt --stage generate
+
+      - name: 提交并把报告推回仓库
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          if git diff --staged --quiet; then
+            echo "本次无内容变化"
+          else
+            git commit -m "report $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git pull --rebase --autostash || true
+            git push
+          fi
+
+      - name: 等待 GitHub Pages 部署完成
+        # 报告必须先部署好，微信里点链接才不会 404。轮询直到返回 200 或超时。
+        # URL 由 main.py 写入 .cache/url.txt —— 文件名按「数据日期」命名，
+        # 早7点跑时数据日是上一个交易日，不能用 date 自己拼。
+        run: |
+          if [ ! -s .cache/url.txt ]; then
+            echo "未配置 PAGES_BASE，跳过等待（微信里将不带链接）"; exit 0
+          fi
+          URL=$(cat .cache/url.txt)
+          echo "等待 $URL"
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo 000)
+            if [ "$code" = "200" ]; then echo "Pages 已就绪"; exit 0; fi
+            echo "第 $i 次：HTTP $code，15 秒后重试"
+            sleep 15
+          done
+          echo "Pages 在 6 分钟内未就绪，仍继续推送（链接可能短暂 404）"
+
+      - name: 推送到个人微信
+        env:
+          PUSH_CHANNEL: ${{ vars.PUSH_CHANNEL }}
+          PUSH_KEY: ${{ secrets.PUSH_KEY }}
+        run: python3 main.py --session premkt --stage push
