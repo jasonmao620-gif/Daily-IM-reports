@@ -1,0 +1,83 @@
+name: 自选股追踪（早 8:30）
+
+on:
+  schedule:
+    # 早 8:30 北京时间 = 当天 00:30 UTC（中国无夏令时，全年 UTC+8）
+    # 注意与早 7:00 那条的区别：7:00-8=-1，会退到前一天 23:00，所以星期要写 0-4；
+    # 而 8:30-8=0:30，仍是同一天，星期直接写 1-5（北京时间周一至周五）。
+    # 写错就会变成周末跑、工作日不跑。
+    - cron: '30 0 * * 1-5'
+  workflow_dispatch:            # 允许手动触发，方便调试
+
+permissions:
+  contents: write               # 需要把生成的报告推回仓库
+
+concurrency:
+  group: watchlist-report       # 与主报告分开，两条流水线互不阻塞
+  cancel-in-progress: false
+
+jobs:
+  watchlist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          # 用 3.12 而非 3.11：自选股报告里有较多 f-string 模板，
+          # 3.12 起才允许在 f-string 表达式内复用同种引号，用 3.11 可能报语法错。
+          python-version: '3.12'
+
+      - name: 自动推导 Pages 地址
+        run: |
+          if [ -n "${{ vars.PAGES_BASE }}" ]; then
+            echo "使用手动配置的 PAGES_BASE"
+            echo "PAGES_BASE=${{ vars.PAGES_BASE }}" >> "$GITHUB_ENV"
+          else
+            REPO="${GITHUB_REPOSITORY#*/}"
+            echo "PAGES_BASE=https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPO}" >> "$GITHUB_ENV"
+          fi
+          echo "报告外链将指向：$(grep PAGES_BASE "$GITHUB_ENV" | cut -d= -f2-)"
+
+      - name: 生成报告（取数 → 指标/回测 → 出 HTML → 暂存摘要）
+        run: python3 watch_main.py --stage generate
+
+      - name: 提交并把报告推回仓库
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          if git diff --staged --quiet; then
+            echo "本次无内容变化"
+          else
+            git commit -m "watchlist $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git pull --rebase --autostash || true
+            git push
+          fi
+
+      - name: 等待 GitHub Pages 部署完成
+        # 文件名按「数据日期」命名（早 8:30 跑时是上一个交易日），不能用 date 自己拼，
+        # 所以由 watch_main.py 写入 .cache/url_watch.txt。
+        run: |
+          if [ ! -s .cache/url_watch.txt ]; then
+            echo "未配置 PAGES_BASE，跳过等待（微信里将不带链接）"; exit 0
+          fi
+          URL=$(cat .cache/url_watch.txt)
+          echo "等待 $URL"
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo 000)
+            if [ "$code" = "200" ]; then echo "Pages 已就绪"; exit 0; fi
+            echo "第 $i 次：HTTP $code，15 秒后重试"
+            sleep 15
+          done
+          echo "Pages 在 6 分钟内未就绪，仍继续推送（链接可能短暂 404）"
+
+      - name: 推送到个人微信
+        env:
+          PUSH_CHANNEL: ${{ vars.PUSH_CHANNEL }}
+          PUSH_KEY: ${{ secrets.PUSH_KEY }}
+        run: python3 watch_main.py --stage push

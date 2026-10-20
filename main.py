@@ -314,15 +314,24 @@ def main():
     log(f'报告已写入 {path}（{len(html):,} 字节）')
 
     # 更新索引页，方便翻历史
+    # 两类报告共用一个索引：daily-* 是 IM 期货盘前报，watch-* 是自选股报。
+    # 自选股流水线不写 index（否则两条 workflow 会互相覆盖），只在主报告里统一重建。
     try:
-        files = sorted([x for x in os.listdir(DOCS) if x.startswith('daily-')], reverse=True)
-        li = '\n'.join(f'<li><a href="{x}">{x[6:10]}-{x[10:12]}-{x[12:14]} 数据日</a></li>'
-                       for x in files[:60])
+        def _li(prefix):
+            xs = sorted([x for x in os.listdir(DOCS) if x.startswith(prefix)], reverse=True)
+            return '\n'.join(f'<li><a href="{x}">{x[len(prefix):len(prefix)+4]}-'
+                             f'{x[len(prefix)+4:len(prefix)+6]}-{x[len(prefix)+6:len(prefix)+8]}</a></li>'
+                             for x in xs[:40])
+
+        li_d, li_w = _li('daily-'), _li('watch-')
         with open(os.path.join(DOCS, 'index.html'), 'w', encoding='utf-8') as f:
             f.write(f'<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">'
-                    f'<title>IM 中证1000 每日简报</title></head><body style="font-family:-apple-system,'
-                    f'sans-serif;padding:30px;max-width:640px;margin:auto">'
-                    f'<h2>IM 中证1000 每日简报</h2><ul>{li}</ul></body></html>')
+                    f'<meta name="viewport" content="width=device-width,initial-scale=1">'
+                    f'<title>每日简报索引</title></head>'
+                    f'<body style="font-family:-apple-system,BlinkMacSystemFont,\'PingFang SC\','
+                    f'sans-serif;padding:30px;max-width:640px;margin:auto;line-height:1.8">'
+                    f'<h2>IM 中证1000 盘前简报</h2><ul>{li_d}</ul>'
+                    f'<h2>自选股追踪</h2><ul>{li_w}</ul></body></html>')
     except Exception as e:
         log(f'  索引页更新失败: {e}')
 
