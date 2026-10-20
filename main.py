@@ -76,7 +76,8 @@ def check_fresh(last_day_str, session):
 
     exp = prev_trading_day(TODAY)
     # 数据日 >= 期望日 都算新鲜：正常早7点跑会相等；
-    # 手动在收盘后测试时数据日会是"今天"，比期望更新，同样没问题。
+    # 手动在 15:05 之后测试时数据日会是"今天"，比期望更新，同样没问题。
+    # （盘中运行时未完成的当日 K 线已在取数阶段被剔除，不会走到 last == TODAY 的情形）
     if last >= exp:
         return True, '', f'{last:%Y-%m-%d}'
     gap = (exp - last).days
@@ -107,6 +108,9 @@ def main():
     log(f'运行时段：{"盘前版" if session == "premkt" else "复盘版"}　北京时间 {NOW_CN:%Y-%m-%d %H:%M}')
 
     # ---------- 1. 取数 ----------
+    # 盘中标记：北京时间 15:05 前，日线最后一根（若日期是今天）属于未完成的盘中 K 线
+    _mins = NOW_CN.hour * 60 + NOW_CN.minute
+    intraday = _mins < 15 * 60 + 5
     log('取数：现货日线')
     kl = fetch.spot_kline(800)
     if not kl:
@@ -116,6 +120,18 @@ def main():
     kl, merged = fetch.merge_today(kl, snap, TODAY)
     if merged:
         log(f'  已用东财实时价补入当日 K 线 {TODAY:%Y-%m-%d}')
+
+    # 盘中保护：定时任务 7:00 跑不会触发这条，但手动 Run workflow 极易在盘中撞上。
+    # 那时日线最后一根是**未完成**的 K 线，直接当收盘价用，会把「10:22 的即时价」
+    # 标成「A股收盘」——这正是 2026-10-20 首次云端测试暴露的问题。
+    if intraday and kl[-1]['day'] == f'{TODAY:%Y-%m-%d}':
+        dropped = kl[-1]['day']
+        kl = kl[:-1]
+        if len(kl) < 120:
+            print('FATAL: 剔除未完成 K 线后剩余数据不足，终止')
+            return 2
+        log(f'  剔除未完成的当日 K 线 {dropped}（北京时间 {NOW_CN:%H:%M} 尚未收盘）'
+            f' → 改用 {kl[-1]["day"]}')
     stamps.append(f'现货日线 {kl[-1]["day"]}')
 
     log('取数：纳指日线')
@@ -127,16 +143,19 @@ def main():
     for code, bars in im_raw.items():
         if expired(code):
             continue
+        # 与现货同理：盘中运行时剔除未完成的当日 K 线，否则持仓/涨跌都是盘中的瞬时值
+        if intraday and bars and bars[-1].get('day') == f'{TODAY:%Y-%m-%d}':
+            bars = bars[:-1]
         if len(bars) >= 2:
             im[code] = dict(close=bars[-1]['close'], open=bars[-1]['open'],
                             high=bars[-1]['high'], low=bars[-1]['low'],
                             oi=bars[-1]['oi'], vol=bars[-1]['vol'],
                             prev=bars[-2]['close'], chg=bars[-1]['close'] - bars[-2]['close'],
-                            doi=bars[-1]['oi'] - bars[-2]['oi'])
+                            doi=bars[-1]['oi'] - bars[-2]['oi'], day=bars[-1]['day'])
     mainc = pick_main(im)
     log(f'  挂牌 {sorted(im)} → 主力 {mainc}')
     if mainc:
-        last_day = im_raw[mainc][-1]['day']
+        last_day = im[mainc]['day']
         stamps.append(f'IM{mainc[2:]} 日线 {last_day}')
         if last_day != kl[-1]['day']:
             log(f'  注意：IM 日线 {last_day} 与现货日线 {kl[-1]["day"]} 不同步'
@@ -171,6 +190,9 @@ def main():
     sigs, div_state = ind.divergence(c)
     bt = ind.backtest_divergence(c)
     tr = ind.overnight_transmit(ndx, kl)
+    if tr is not None and len(kl) >= 21:
+        # 当日自身的 20 日涨跌幅：用于在「跌超2%」与「跌超2%+前20日跌超10%」之间选对分组
+        tr['r20_now'] = (kl[-1]['close'] / kl[-21]['close'] - 1) * 100
 
     div_text = {'formed': '底背离成立（待确认）', 'unconfirmed': '底背离成立但未确认',
                 'none': '无底背离信号'}[div_state]

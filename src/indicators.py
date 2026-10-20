@@ -185,7 +185,18 @@ def overnight_transmit(ndx, kl):
                   '纳指跌超2% + 前20日跌超5%'),
         g2_10=stat(lambda p: p['ndx'] <= -2.0 and p['r20'] is not None and p['r20'] <= -10,
                    '纳指跌超2% + 前20日跌超10%'),
+        # 以下三组为对称补充：纳指上涨或小跌时，同样要有可对照的历史基准，
+        # 否则摘要会不管当夜涨跌都套「跌超2%」那一组，出现自相矛盾。
+        g1down=stat(lambda p: -2.0 < p['ndx'] <= -1.0, '纳指跌 1%–2%'),
+        gflat=stat(lambda p: -1.0 < p['ndx'] < 1.0, '纳指涨跌不超1%'),
+        g1up=stat(lambda p: p['ndx'] >= 1.0, '纳指涨超1%'),
+        g1up_10=stat(lambda p: p['ndx'] >= 1.0 and p['r20'] is not None and p['r20'] <= -10,
+                     '纳指涨超1% + 前20日跌超10%'),
+        # 注意区分两个数字，混用会写出自相矛盾的摘要：
+        #   latest_ndx    = 最后一对「可回测」的纳指变动（其对应的A股次日已经发生）
+        #   last_ndx_chg  = 最近一夜纳指的真实涨跌（其对应的A股次日可能还没开盘）
         latest_ndx=pairs[-1]['ndx'] if pairs else None,
+        last_ndx_chg=((ndx[-1][1] / ndx[-2][1] - 1) * 100) if len(ndx) >= 2 else None,
     )
 
 

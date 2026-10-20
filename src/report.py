@@ -145,15 +145,22 @@ def build_html(d):
     A('</div>')
     tr = d.get('transmit')
     if tr and tr.get('g2', {}).get('n'):
+        lx = tr.get('last_ndx_chg')
+        pick = pick_transmit_group(tr)
         A('<h3 style="font-size:15px;color:var(--blue);margin:18px 0 8px">'
-          '纳指大跌 → A股次日传导（历史配对）</h3>')
+          '纳指变动 → A股次日传导（历史配对）</h3>')
+        if lx is not None:
+            A(f'<div class="note">最近一夜纳指 <b>{lx:+.2f}%</b>。下表按涨跌幅分档，'
+              f'<b>高亮那一行</b>才是与之匹配的历史分组——不要拿别的档位当今天的胜率。</div>')
         A('<table><tr><th class="left">条件</th><th>样本</th><th>次日上涨</th>'
           '<th>开盘</th><th>日内最低</th><th>收盘</th></tr>')
-        for k in ('g2', 'g2_5', 'g2_10'):
+        for k in ('g2', 'g2_10', 'g1down', 'gflat', 'g1up', 'g1up_10'):
             s = tr.get(k) or {}
             if not s.get('n'):
                 continue
-            A(f'<tr><td class="left">{s["label"]}</td><td>{s["n"]}</td>'
+            hl = (' style="background:#eef4ff;font-weight:700"'
+                  if pick and s.get('label') == pick.get('label') else '')
+            A(f'<tr{hl}><td class="left">{s["label"]}</td><td>{s["n"]}</td>'
               f'<td><b>{s["win"]:.1f}%</b></td><td>{s["open"]:+.2f}%</td>'
               f'<td>{s["low"]:+.2f}%</td><td>{s["close"]:+.2f}%</td></tr>')
         A('</table>')
@@ -188,6 +195,36 @@ def build_html(d):
     return '\n'.join(P)
 
 
+def pick_transmit_group(tr):
+    """按「最近一夜」纳指的真实涨跌，挑出与之匹配的历史分组。
+
+    原先固定取 g2_10（纳指跌超2%），当夜纳指上涨时会写出
+    「隔夜纳指 +1.11%」紧接「同类情形：纳指跌超2%…」的自相矛盾。
+
+    关键在于用 last_ndx_chg（最近一夜真实变动）而不是 latest_ndx
+    （最后一对可回测的变动）——后者永远落后一夜，用它选组必然错位。
+    """
+    if not tr:
+        return None
+    lx = tr.get('last_ndx_chg')
+    if lx is None:
+        lx = tr.get('latest_ndx')
+    if lx is None:
+        return None
+    r20 = tr.get('r20_now')
+    deep = r20 is not None and r20 <= -10          # 当日处于深度超跌
+    if lx <= -2.0:
+        key = 'g2_10' if deep else 'g2'
+    elif lx <= -1.0:
+        key = 'g1down'
+    elif lx >= 1.0:
+        key = 'g1up_10' if deep else 'g1up'
+    else:
+        key = 'gflat'
+    s = tr.get(key)
+    return s if s and s.get('n') else None
+
+
 def build_summary(d, url):
     """微信摘要：结论先行，表格压成一行行短句，末尾附完整版链接。"""
     c = d['core']
@@ -215,10 +252,12 @@ def build_summary(d, url):
         L.append(f'**隔夜：** 纳指 {ndx["last"]:,.0f}（{ndx["chg"]:+.2f}%）' +
                  (f'｜VIX {vix["last"]:.1f}（{vix["chg"]:+.1f}%）' if vix else ''))
     tr = d.get('transmit')
-    if tr and tr.get('g2_10', {}).get('n'):
-        s = tr['g2_10']
-        L.append(f'**同类情形：** {s["label"]}（n={s["n"]}）次日上涨 {s["win"]:.0f}%，'
-                 f'开盘 {s["open"]:+.2f}%、收盘 {s["close"]:+.2f}%')
+    s = pick_transmit_group(tr)
+    if s:
+        lx = tr.get('last_ndx_chg')
+        L.append(f'**同类情形：** 当夜纳指 {lx:+.2f}%，参照历史同档「{s["label"]}」'
+                 f'（n={s["n"]}）：次日上涨 {s["win"]:.0f}%，开盘 {s["open"]:+.2f}%、'
+                 f'收盘 {s["close"]:+.2f}%')
     L.append('')
     L.append('**关键价位**')
     for name, v in d.get('levels', [])[:4]:
